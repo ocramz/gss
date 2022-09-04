@@ -1,0 +1,3 @@
+# gss
+
+Graph-structured stacks
