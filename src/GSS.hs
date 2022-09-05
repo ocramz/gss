@@ -23,7 +23,7 @@ import qualified Algebra.Graph.AdjacencyMap as G (AdjacencyMap, vertex, edge, ed
 import qualified Algebra.Graph.ToGraph as G (dfsForest)
 import qualified Algebra.Graph.Export.Dot as G (exportViaShow)
 -- containers
-import qualified Data.Set as S (Set, member, fromList, toList, insert, filter, partition, intersection)
+import qualified Data.Set as S (Set, member, fromList, toList, insert, delete, filter, difference, partition, intersection)
 import Data.Tree (Tree, rootLabel, Forest)
 --
 import Data.Text as T (Text)
@@ -77,7 +77,8 @@ push f x = modifyGSS $ \am rs ->
                            let
                              vs = S.toList $ S.filter (f x) rs
                              amNew = G.edges $ zip (repeat x) vs
-                             in (am `G.overlay` amNew, x `S.insert` rs)
+                             am' = am `G.overlay` amNew
+                           in (am', removeInternalVertices am' ( x `S.insert` rs) )
 
 -- | Pop the top nodes from the top of the GSS
 pop :: (Ord a) =>
@@ -107,6 +108,19 @@ build m = runState m empty
 empty :: (Ord a) => GSS a
 empty = GSS mempty mempty
 
+
+-- | if the pre-set of any point in the set is non-empty we remove it from the set
+removeInternalVertices :: Ord a =>
+                          G.AdjacencyMap a
+                       -> S.Set a -- ^ candidate root points
+                       -> S.Set a
+removeInternalVertices am rs = foldr remf rs rs
+  where
+    remf r acc =
+      let ps = G.preSet r am
+      in if not (null ps)
+         then S.delete r acc
+         else acc
 
 removeVertices :: (Foldable t, Ord a) => G.AdjacencyMap a -> t a -> G.AdjacencyMap a
 removeVertices = foldr G.removeVertex

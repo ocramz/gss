@@ -46,6 +46,7 @@ test-suite spec
                      , containers
                      , gss
                      , hspec
+                     , transformers >= 0.5
 
   ghc-options:         -Wall
                        -Wcompat
