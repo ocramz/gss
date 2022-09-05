@@ -24,6 +24,8 @@ library
                      , containers
                      , text
                      , transformers >= 0.5
+                     -- debug
+                     , hspec
   ghc-options:         -Wall
                        -Wcompat
                        -Widentities
@@ -39,11 +41,12 @@ test-suite spec
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Spec.hs
-  other-modules:       LibSpec
+  other-modules:       GSSSpec
   build-depends:       base
+                     , containers
                      , gss
                      , hspec
-                     , QuickCheck
+
   ghc-options:         -Wall
                        -Wcompat
                        -Widentities
