@@ -21,11 +21,5 @@ spec =
       rs `shouldBe` S.fromList ['c']
 
 
--- g0 :: GSS Char
--- g0 = snd $ build $ do
---   pushGt 'a'
---   pushGt 'b'
---   pushGt 'c'
-
 pushGt :: Ord a => a -> State (GSS a) ()
 pushGt = push (>)
