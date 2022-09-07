@@ -9,6 +9,7 @@ module GSS (GSS,
             pop,
             -- empty,
             build,
+            buildT,
              -- * GraphViz support
             dotExport,
             dotWrite,
@@ -31,7 +32,7 @@ import Data.Text.Lazy as TL (Text)
 import Data.Text.Lazy.IO as TL (writeFile)
 import Data.Text.Internal.Builder as TB (Builder, toLazyText)
 -- transformers
-import Control.Monad.Trans.State (StateT, State, runState, execState, get, put, modify)
+import Control.Monad.Trans.State (StateT, State, runState, runStateT, execState, get, put, modify)
 
 -- | export GSS in graphviz Dot format
 dotExport :: (Ord a, Show a) => GSS a -> TL.Text
@@ -50,8 +51,6 @@ data GSS a = GSS {
   , roots :: S.Set a
                     } deriving (Eq, Show)
 
-
-
 -- instance (Ord a) => Semigroup (GSS a) where
 --   GSS a ra <> GSS b rb = GSS (a <> b) (ra <> rb)
 -- instance (Ord a) => Monoid (GSS a) where
@@ -66,10 +65,10 @@ gssRoots :: GSS a -> S.Set a
 gssRoots = roots
 
 -- | Push a node to the top of the GSS
-push :: Ord a =>
+push :: (Monad m, Ord a) =>
         (a -> a -> Bool) -- ^ node comparison
      -> a -- ^ node to push
-     -> State (GSS a) ()
+     -> StateT (GSS a) m ()
 push f x = modifyGSS $ \am rs ->
                          if x `S.member` rs
                          then (am, rs)
@@ -81,9 +80,9 @@ push f x = modifyGSS $ \am rs ->
                            in (am', removeInternalVertices am' ( x `S.insert` rs) )
 
 -- | Pop the top nodes from the top of the GSS
-pop :: (Ord a) =>
+pop :: (Monad m, Ord a) =>
        (a -> Bool) -- ^ predicate for selecting top nodes
-    -> State (GSS a) (S.Set a)
+    -> StateT (GSS a) m (S.Set a)
 pop f = do
   GSS am vs <- get
   let
@@ -93,8 +92,8 @@ pop f = do
   put gss'
   pure vsOk
 
-modifyGSS :: (G.AdjacencyMap a -> S.Set a -> (G.AdjacencyMap a, S.Set a))
-          -> State (GSS a) ()
+modifyGSS :: (Monad m) => (G.AdjacencyMap a -> S.Set a -> (G.AdjacencyMap a, S.Set a))
+          -> StateT (GSS a) m ()
 modifyGSS f = modify $ \(GSS am rs) ->
                          let (am', rs') = f am rs
                          in GSS am' rs'
@@ -103,6 +102,10 @@ modifyGSS f = modify $ \(GSS am rs) ->
 -- | Build the 'GSS'
 build :: Ord a => State (GSS a) b -> (b, GSS a)
 build m = runState m empty
+
+-- | Build the 'GSS'
+buildT :: Ord a => StateT (GSS a) m b -> m (b, GSS a)
+buildT m = runStateT m empty
 
 -- | Empty 'GSS'
 empty :: (Ord a) => GSS a
