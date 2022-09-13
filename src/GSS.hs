@@ -2,13 +2,13 @@
 {-# OPTIONS_GHC -Wno-unused-imports #-}
 -- | Graph-structured stacks
 module GSS (GSS,
-            -- * Access
-            gssAdjMap, gssTop,
             -- * Construction
             push,
             fork,
             prune,
             -- empty,
+            -- * Access
+            gssAdjMap, gssTop,
             -- ** Internal types
             Label, labelId, labelledNode,
             -- ** Build monad
@@ -183,6 +183,10 @@ labeledFrom i x n = zipWith Label [i, i+1 ..] (replicate n x)
 
 isValid :: Ord a => GSS e a -> Bool
 isValid (GSS am rs) = all (\r -> null (GL.preSet r am)) rs
+
+
+-- isChainGraph x (GSS am rs) = case findLabeled x rs of
+--   Just xl -> if 
 
 -- | if the pre-set of any point in the set is non-empty we remove it from the set
 --

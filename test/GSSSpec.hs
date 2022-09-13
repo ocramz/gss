@@ -8,7 +8,7 @@ import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 -- transformers
 import Control.Monad.Trans.State (StateT, State)
 
-import GSS (GSS, S, push, fork, build, gssTop, gssAdjMap, labelledNode)
+import GSS (GSS, S, push, fork, prune, build, gssTop, gssAdjMap, labelledNode)
 
 
 spec :: Spec
@@ -24,6 +24,11 @@ spec =
         g1 = build (push' 'a' >> push' 'b' >> fork' 'z' 'b')
         rs = S.map labelledNode $ gssTop g1
       rs `shouldBe` S.fromList ['z', 'z']
+    it "push >> fork >> push >> prune should build a chain graph" $ do
+      let
+        g2 = build (push' 'a' >> fork' 'z' 'a' >> push' 'c' >> prune 'c')
+        rs = S.map labelledNode $ gssTop g2
+      rs `shouldBe` S.fromList ['z']
 
 
 push' :: Ord a => a -> State (S [Char] a) ()
