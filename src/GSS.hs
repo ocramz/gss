@@ -7,21 +7,26 @@ module GSS (GSS,
             -- * Construction
             push,
             fork,
-            pop,
+            prune,
             -- empty,
             -- ** Internal types
             Label, labelId, labelledNode,
             -- ** Build monad
             build,
             buildT,
+            S,
+            -- ** Validation
+            isValid,
              -- * GraphViz support
             dotExport,
             dotWrite,
            )where
 
+import Control.Applicative (Alternative(..))
 import Data.Bifunctor (second)
 import Data.Function (on)
 import Data.Int (Int32, Int64)
+import Data.List (find)
 import Data.Ord (comparing)
 
 -- algebraic-graphs
@@ -39,7 +44,7 @@ import Data.Text.Lazy as TL (Text)
 import Data.Text.Lazy.IO as TL (writeFile)
 import Data.Text.Internal.Builder as TB (Builder, toLazyText)
 -- transformers
-import Control.Monad.Trans.State (StateT, State, runState, runStateT, execState, get, put, modify)
+import Control.Monad.Trans.State (StateT, State, runState, runStateT, execState, execStateT, get, put, modify)
 
 -- | export GSS in graphviz Dot format
 dotExport :: (Ord a, Show a, Eq e, Monoid e) => GSS e a -> TL.Text
@@ -61,7 +66,7 @@ data GSS e a = GSS {
 type NodeId = Int32
 data Label a = Label NodeId a deriving (Eq, Ord)
 instance Show a => Show (Label a) where
-  show (Label i x) = show x <> "_" <> show i
+  show (Label i x) = "<" <> show x <> " " <> show i <> ">"
 labelId :: Label a -> NodeId
 labelId (Label i _) = i
 labelledNode :: Label a -> a
@@ -74,6 +79,9 @@ gssAdjMap = unGSS
 -- | The top nodes of the 'GSS'
 gssTop :: GSS e a -> S.Set (Label a)
 gssTop = tops
+
+
+
 
 -- | Push a node to the top of the GSS
 push :: (Monad m, Monoid e, Ord a, Eq e) =>
@@ -119,38 +127,40 @@ fork :: (Monad m, Monoid e, Eq e, Ord a) =>
      -> a -- ^ node
      -> a -- ^ top of the stack to which the forked stack will point
      -> StateT (S e a) m ()
-fork n e x xtop = modifyGSS $ \am rs i ->
-  let
-    xl = Label i x
-    i' = i + 1
-    xtopl = Label i' xtop
-  in
-    if
-      xl == xtopl || not (xtopl `S.member` rs) || n <= 1
-    then (am, rs, i) -- return original
-    else
+fork n e x xtop
+  | n > 1 = modifyGSS $ \am rs i ->
+          case findLabeled xtop rs of
+            Nothing -> (am, rs, i)
+            Just xtopl ->
+              let
+                i' = i + 1
+                xls = labeledFrom i' x n
+                amNew = GL.edges (zip3 (repeat e) xls (repeat xtopl)) -- edges from all the labeled copies of x to xtop
+                am' = am `GL.overlay` amNew
+                i'' = i' + fromIntegral n
+                rs' = removeInternalVertices am' (S.fromList xls `S.union` rs)
+              in
+                (am', rs', i'')
+  | otherwise = pure ()
+
+-- | Prune a branch of a 'GSS' terminating in the given node
+prune :: (Monad m, Ord a) =>
+         a -- ^ top node of the branch to be pruned
+      -> StateT (S e a) m ()
+prune x = modifyGSS $ \am rs i ->
+  case findLabeled x rs of
+    Nothing -> (am, rs, i)
+    Just xl ->
       let
-        xls = labeledFrom i' x n
-        amNew = GL.edges (zip3 (repeat e) xls (repeat xtopl)) -- edges from all the labeled copies of x to xtop
-        am' = am `GL.overlay` amNew
-        i'' = i' + fromIntegral n
-        rs' = removeInternalVertices am' (S.fromList xls `S.union` rs)
+        am' = removeChain am xl
+        rs' = S.delete xl rs
       in
-        (am', rs', i'')
+        (am', rs', i)
 
--- prune x = modifyGSS $ \am rs i ->
---   let
---     xu = S.map labelledNode rs
---   in
---     if x `S.member` xu
---     then
---       let
---         am' = removeChain am x
---       in
---         undefined
---     else undefined
 
-filterLabeled x rs = S.toList $ S.filter (\xl -> labelledNode xl == x) rs
+findLabeled :: Eq a =>
+               a -> S.Set (Label a) -> Maybe (Label a)
+findLabeled x = find ((== x) . labelledNode)
 
 removeChain :: (Ord a) => GL.AdjacencyMap e a -> a -> GL.AdjacencyMap e a
 removeChain = go
@@ -189,20 +199,8 @@ removeInternalVertices am rs = foldr remf rs rs
          then S.delete r acc
          else acc
 
--- | Pop the top nodes from the top of the GSS
 
--- pop :: (Monad m, Ord a) =>
---        (a -> Bool) -- ^ predicate for selecting top nodes
---     -> StateT (GSS a) m (S.Set a)
--- pop f = do
---   GSS am vs <- get
---   let
---     (vsOk, vsNo) = S.partition f vs
---     am' = removeVertices am vsOk
---     gss' = GSS am' vsNo
---   put gss'
---   pure vsOk
-pop = undefined
+
 
 -- modifyGSS :: Monad m =>
 --              (GL.AdjacencyMap e a -> S.Set a -> NodeId -> (GL.AdjacencyMap e a, S.Set a, NodeId))
@@ -217,7 +215,7 @@ data S e a = S {
   , sNodeCounter :: !NodeId -- ^ used to disambiguate duplicate nodes pushed on candidate branches of the GSS
                } deriving (Eq, Show)
 s0 :: S e a
-s0 = S empty 0
+s0 = S gssEmpty 0
 
 -- modifySGss :: (GL.AdjacencyMap e1 a1 -> S.Set a1 -> NodeId -> (GL.AdjacencyMap e2 a2, S.Set a2, NodeId))
 --            -> S e1 a1 -> S e2 a2
@@ -226,27 +224,44 @@ modifySGss :: (GL.AdjacencyMap e1 (Label a1) -> S.Set (Label a1) -> NodeId -> (G
 modifySGss f (S (GSS am rs) i) = let (am', rs', i') = f am rs i in S (GSS am' rs') i'
 
 -- | Build the 'GSS'
-build :: State (S e a) b -> (b, GSS e a)
-build m = second sGss $ runState m s0
+build :: State (S e a) b -> (GSS e a)
+build m = sGss $ execState m s0
 
 -- | Build the 'GSS'
-buildT :: (Functor m) => StateT (S e a) m b -> m (b, GSS e a)
-buildT m = second sGss <$> runStateT m s0
+buildT :: (Monad m) => StateT (S e a) m b -> m (GSS e a)
+buildT m = sGss <$> execStateT m s0
 
 -- | Empty 'GSS'
-empty :: GSS e a
-empty = GSS GL.empty S.empty
+gssEmpty :: GSS e a
+gssEmpty = GSS GL.empty S.empty
 
 
 
+
+
+
+
+-- p0 :: GSS [Char] Char
+p0 = build (push "a" '.' >> push "b" '.' >> push "c" '.' >> fork 2 "f" '.' '.')
+
+-- -- old
 
 -- removeVertices :: (Foldable t, Ord a) => G.AdjacencyMap a -> t a -> G.AdjacencyMap a
 -- removeVertices = foldr G.removeVertex
 
+-- | Pop the top nodes from the top of the GSS
 
-
-
--- -- old
+-- pop :: (Monad m, Ord a) =>
+--        (a -> Bool) -- ^ predicate for selecting top nodes
+--     -> StateT (GSS a) m (S.Set a)
+-- pop f = do
+--   GSS am vs <- get
+--   let
+--     (vsOk, vsNo) = S.partition f vs
+--     am' = removeVertices am vsOk
+--     gss' = GSS am' vsNo
+--   put gss'
+--   pure vsOk
 
 -- push :: (Monad m, Ord a) =>
 --         (a -> a -> Bool) -- ^ node comparison
