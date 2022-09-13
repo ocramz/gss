@@ -6,8 +6,12 @@ module GSS (GSS,
             gssAdjMap, gssTop,
             -- * Construction
             push,
+            fork,
             pop,
             -- empty,
+            -- ** Internal types
+            Label, labelId, labelledNode,
+            -- ** Build monad
             build,
             buildT,
              -- * GraphViz support
@@ -26,7 +30,8 @@ import qualified Algebra.Graph.Labelled.AdjacencyMap as GL (AdjacencyMap, empty,
 import qualified Algebra.Graph.ToGraph as G (dfsForest)
 import qualified Algebra.Graph.Export.Dot as G (exportViaShow)
 -- containers
-import qualified Data.Set as S (Set, empty, singleton, member, fromList, toList, insert, delete, filter, difference, partition, intersection, lookupMin)
+import qualified Data.Map as M (Map, fromList, toList, fromSet, mapKeys)
+import qualified Data.Set as S (Set, empty, singleton, member, fromList, toList, map, insert, delete, filter, union, difference, partition, intersection, lookupMin)
 import Data.Tree (Tree, rootLabel, Forest)
 --
 import Data.Text as T (Text)
@@ -54,7 +59,13 @@ data GSS e a = GSS {
                     } deriving (Eq, Show)
 
 type NodeId = Int32
-data Label a = Label NodeId a deriving (Eq, Ord, Show)
+data Label a = Label NodeId a deriving (Eq, Ord)
+instance Show a => Show (Label a) where
+  show (Label i x) = show x <> "_" <> show i
+labelId :: Label a -> NodeId
+labelId (Label i _) = i
+labelledNode :: Label a -> a
+labelledNode (Label _ x) = x
 
 -- | The graph adjacency map underlying the 'GSS'
 gssAdjMap :: GSS e a -> GL.AdjacencyMap e (Label a)
@@ -65,8 +76,6 @@ gssTop :: GSS e a -> S.Set (Label a)
 gssTop = tops
 
 -- | Push a node to the top of the GSS
-
-
 push :: (Monad m, Monoid e, Ord a, Eq e) =>
         e -- ^ edge label
      -> a -- ^ node
@@ -94,7 +103,8 @@ push e x = modifyGSS $ \am rs i ->
           else
             let
               vs = S.toList rs
-              xls = zipWith Label [i, i + 1 ..] (repeat x)
+              n = length rs
+              xls = labeledFrom i x n
               amNew = GL.edges (zip3 (repeat e) xls vs)
               am' = am `GL.overlay` amNew
               i' = i + fromIntegral (length rs)
@@ -102,13 +112,64 @@ push e x = modifyGSS $ \am rs i ->
             in (am', rs', i')
 
 
+-- | fork the stack into two or more replicas
+fork :: (Monad m, Monoid e, Eq e, Ord a) =>
+        Int -- ^ replicas of the stack
+     -> e -- ^ edge label
+     -> a -- ^ node
+     -> a -- ^ top of the stack to which the forked stack will point
+     -> StateT (S e a) m ()
+fork n e x xtop = modifyGSS $ \am rs i ->
+  let
+    xl = Label i x
+    i' = i + 1
+    xtopl = Label i' xtop
+  in
+    if
+      xl == xtopl || not (xtopl `S.member` rs) || n <= 1
+    then (am, rs, i) -- return original
+    else
+      let
+        xls = labeledFrom i' x n
+        amNew = GL.edges (zip3 (repeat e) xls (repeat xtopl)) -- edges from all the labeled copies of x to xtop
+        am' = am `GL.overlay` amNew
+        i'' = i' + fromIntegral n
+        rs' = removeInternalVertices am' (S.fromList xls `S.union` rs)
+      in
+        (am', rs', i'')
 
--- fork n e x xtop = modifyGSS $ \am rs i ->
---   if x == xtop
---   then (am, rs, i) -- return original
---   else
---     let
---       es = replicate n x
+-- prune x = modifyGSS $ \am rs i ->
+--   let
+--     xu = S.map labelledNode rs
+--   in
+--     if x `S.member` xu
+--     then
+--       let
+--         am' = removeChain am x
+--       in
+--         undefined
+--     else undefined
+
+filterLabeled x rs = S.toList $ S.filter (\xl -> labelledNode xl == x) rs
+
+removeChain :: (Ord a) => GL.AdjacencyMap e a -> a -> GL.AdjacencyMap e a
+removeChain = go
+  where
+    go am x = case (S.lookupMin ps, length ps) of
+      (Nothing, _) -> am
+      (Just x', 1) -> if length (GL.preSet x' am) == 1
+                      then go am' x'
+                      else am
+      _ -> error "invariant broken : post-set should be a singleton"
+      where
+        am' = GL.removeVertex x am
+        ps = GL.postSet x am
+
+labeledFrom :: NodeId -- ^ starting node label
+            -> a
+            -> Int -- ^ number of copies
+            -> [Label a]
+labeledFrom i x n = zipWith Label [i, i+1 ..] (replicate n x)
 
 isValid :: Ord a => GSS e a -> Bool
 isValid (GSS am rs) = all (\r -> null (GL.preSet r am)) rs
