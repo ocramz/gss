@@ -25,7 +25,7 @@ import Data.List.NonEmpty (NonEmpty(..))
 -- containers
 import qualified Data.Set as S (Set, empty, size, singleton, member, fromList, toList, insert, foldl, foldl', delete, filter, difference, partition, intersection, valid, minView)
 
-import Prelude hiding (head, foldl', foldl1)
+import Prelude hiding (head, foldl1)
 
 -- | Nonempty sets
 data Set a = Set a (S.Set a) deriving (Eq, Show, Ord)

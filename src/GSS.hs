@@ -10,7 +10,7 @@ module GSS (GSS,
             -- * Access
             gssAdjMap, gssTop,
             -- ** Internal types
-            Label, labelId, labelledNode,
+            Label, labelId, NodeId, labelledNode,
             -- ** Build monad
             build,
             buildT,
@@ -20,7 +20,7 @@ module GSS (GSS,
              -- * GraphViz support
             dotExport,
             dotWrite,
-           )where
+            ) where
 
 import Control.Applicative (Alternative(..))
 import Data.Bifunctor (second)
@@ -84,6 +84,8 @@ gssTop = tops
 
 
 -- | Push a node to the top of the GSS
+--
+-- NB: the edge label parameter corresponding to the first pushed node is ignored
 push :: (Monad m, Monoid e, Ord a, Eq e) =>
         e -- ^ edge label
      -> a -- ^ node
@@ -120,7 +122,7 @@ push e x = modifyGSS $ \am rs i ->
             in (am', rs', i')
 
 
--- | fork the stack into two or more replicas
+-- | Fork the stack into two or more replicas
 fork :: (Monad m, Monoid e, Eq e, Ord a) =>
         Int -- ^ replicas of the stack
      -> e -- ^ edge label
@@ -246,7 +248,7 @@ gssEmpty = GSS GL.empty S.empty
 
 
 -- p0 :: GSS [Char] Char
-p0 = build (push "a" '.' >> push "b" '.' >> push "c" '.' >> fork 2 "f" '.' '.')
+-- p0 = build (push "a" '.' >> push "b" '.' >> push "c" '.' >> fork 2 "f" '.' '.')
 
 -- -- old
 
