@@ -5,6 +5,7 @@ module GSS (GSS,
             -- * Construction
             push,
             fork,
+            combine,
             prune,
             -- empty,
             -- * Access
@@ -145,6 +146,32 @@ fork n e x xtop
                 (am', rs', i'')
   | otherwise = pure ()
 
+
+-- | Combine a set of stack tops by adding a common top that points to all of them
+combine :: (Monad m, Monoid e, Eq e, Ord a) =>
+           S.Set a -- ^ stack tops to be merged
+        -> e -- ^ edge label
+        -> a -- ^ new stack top
+        -> StateT (S e a) m ()
+combine ts e x = modifyGSS $ \am rs i ->
+  if allTops ts rs
+  then
+    let
+      n = length ts
+      xl = labeledFromMulti i [x]
+      i' = i + 1
+      tls = labeledFromMulti i' (S.toList ts)
+      amNew = GL.edges (zip3 (repeat e) xl tls)
+      am' = am `GL.overlay` amNew
+      i'' = i' + fromIntegral n
+      rs' = removeInternalVertices am' (S.fromList xl `S.union` rs)
+    in
+      (am', rs', i'')
+  else (am, rs, i)
+
+allTops :: (Foldable t, Ord b) => S.Set b -> t (Label b) -> Bool
+allTops ts = all ((`S.member` ts) . labelledNode)
+
 -- | Prune a branch of a 'GSS' terminating in the given node
 prune :: (Monad m, Ord a) =>
          a -- ^ top node of the branch to be pruned
@@ -181,7 +208,12 @@ labeledFrom :: NodeId -- ^ starting node label
             -> a
             -> Int -- ^ number of copies
             -> [Label a]
-labeledFrom i x n = zipWith Label [i, i+1 ..] (replicate n x)
+labeledFrom i0 x n = labeledFromMulti i0 (replicate n x)
+
+labeledFromMulti :: NodeId
+                 -> [b] -- ^ NB : must be finite length
+                 -> [Label b]
+labeledFromMulti i0 = zipWith Label [i0, i0+1 ..]
 
 isValid :: Ord a => GSS e a -> Bool
 isValid (GSS am rs) = all (\r -> null (GL.preSet r am)) rs
