@@ -36,7 +36,7 @@ import qualified Algebra.Graph.ToGraph as G (dfsForest)
 import qualified Algebra.Graph.Export.Dot as G (exportViaShow)
 -- containers
 import qualified Data.Map as M (Map, fromList, toList, fromSet, mapKeys)
-import qualified Data.Set as S (Set, empty, singleton, member, fromList, toList, map, insert, delete, filter, union, difference, partition, intersection, lookupMin)
+import qualified Data.Set as S (Set, empty, singleton, member, fromList, toList, map, insert, delete, filter, union, difference, partition, intersection, lookupMin, lookupMax)
 import Data.Tree (Tree, rootLabel, Forest)
 --
 import Data.Text as T (Text)
@@ -187,8 +187,30 @@ isValid :: Ord a => GSS e a -> Bool
 isValid (GSS am rs) = all (\r -> null (GL.preSet r am)) rs
 
 
--- isChainGraph x (GSS am rs) = case findLabeled x rs of
---   Just xl -> if 
+isChainLink :: Ord a => a -> GL.AdjacencyMap e a -> Bool
+isChainLink x am =
+  let
+    ps = GL.postSet x am
+  in
+    case getSetSingleton ps of
+      Nothing -> True
+      Just xnext ->
+        let
+          pres = GL.preSet xnext am
+        in
+          case getSetSingleton pres of
+            Just xpre -> xpre == x
+            _ -> False
+
+
+getSetSingleton :: Eq a => S.Set a -> Maybe a
+getSetSingleton s = case (S.lookupMin s, S.lookupMax s) of
+      (Just xmi, Just xma) | xmi == xma -> Just xmi
+      _ -> Nothing
+
+
+-- isChainGraph x (GSS am rs) = go True where case findLabeled x rs of
+--   Just xl -> if
 
 -- | if the pre-set of any point in the set is non-empty we remove it from the set
 --
