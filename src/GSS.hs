@@ -1,6 +1,13 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# language GeneralizedNewtypeDeriving #-}
 {-# OPTIONS_GHC -Wno-unused-imports #-}
 -- | Graph-structured stacks
+--
+-- References:
+--
+-- Tomita, M., An efficient augmented context-free parsing algorithm, Computational Linguistics, 1987
+--
+-- Tomita, M., Graph-structured stack and natural language parsing, ACL 1988
 module GSS (GSS,
             -- * Construction
             push,
@@ -39,13 +46,15 @@ import qualified Algebra.Graph.Export.Dot as G (exportViaShow)
 import qualified Data.Map as M (Map, fromList, toList, fromSet, mapKeys)
 import qualified Data.Set as S (Set, empty, singleton, member, fromList, toList, map, insert, delete, filter, union, difference, partition, intersection, lookupMin, lookupMax)
 import Data.Tree (Tree, rootLabel, Forest)
---
+-- mtl
+import Control.Monad.State (MonadState, modify)
+-- text
 import Data.Text as T (Text)
 import Data.Text.Lazy as TL (Text)
 import Data.Text.Lazy.IO as TL (writeFile)
 import Data.Text.Internal.Builder as TB (Builder, toLazyText)
 -- transformers
-import Control.Monad.Trans.State (StateT, State, runState, runStateT, execState, execStateT, get, put, modify)
+import Control.Monad.Trans.State (StateT, State, runState, runStateT, execState, execStateT)
 
 -- | export GSS in graphviz Dot format
 dotExport :: (Ord a, Show a, Eq e, Monoid e) => GSS e a -> TL.Text
@@ -87,10 +96,10 @@ gssTop = tops
 -- | Push a node to the top of the GSS
 --
 -- NB: the edge label parameter corresponding to the first pushed node is ignored
-push :: (Monad m, Monoid e, Ord a, Eq e) =>
+push :: (MonadState (S e a) m, Monoid e, Ord a, Eq e) =>
         e -- ^ edge label
      -> a -- ^ node
-     -> StateT (S e a) m ()
+     -> m ()
 push e x = modifyGSS $ \am rs i ->
   let
     xl = Label i x
@@ -124,12 +133,12 @@ push e x = modifyGSS $ \am rs i ->
 
 
 -- | Fork the stack into two or more replicas
-fork :: (Monad m, Monoid e, Eq e, Ord a) =>
+fork :: (MonadState (S e a) m, Monoid e, Eq e, Ord a) =>
         Int -- ^ replicas of the stack
      -> e -- ^ edge label
      -> a -- ^ node
      -> a -- ^ top of the stack to which the forked stack will point
-     -> StateT (S e a) m ()
+     -> m ()
 fork n e x xtop
   | n > 1 = modifyGSS $ \am rs i ->
           case findLabeled xtop rs of
@@ -148,11 +157,11 @@ fork n e x xtop
 
 
 -- | Combine a set of stack tops by adding a common top that points to all of them
-combine :: (Monad m, Monoid e, Eq e, Ord a) =>
+combine :: (MonadState (S e a) m, Monoid e, Eq e, Ord a) =>
            S.Set a -- ^ stack tops to be merged
         -> e -- ^ edge label
         -> a -- ^ new stack top
-        -> StateT (S e a) m ()
+        -> m ()
 combine ts e x = modifyGSS $ \am rs i ->
   if allTops ts rs
   then
@@ -173,9 +182,9 @@ allTops :: (Foldable t, Ord b) => S.Set b -> t (Label b) -> Bool
 allTops ts = all ((`S.member` ts) . labelledNode)
 
 -- | Prune a branch of a 'GSS' terminating in the given node
-prune :: (Monad m, Ord a) =>
+prune :: (MonadState (S e a) m, Ord a) =>
          a -- ^ top node of the branch to be pruned
-      -> StateT (S e a) m ()
+      -> m ()
 prune x = modifyGSS $ \am rs i ->
   case findLabeled x rs of
     Nothing -> (am, rs, i)
@@ -218,23 +227,20 @@ labeledFromMulti i0 = zipWith Label [i0, i0+1 ..]
 isValid :: Ord a => GSS e a -> Bool
 isValid (GSS am rs) = all (\r -> null (GL.preSet r am)) rs
 
-
-isChainLink :: Ord a => a -> GL.AdjacencyMap e a -> Bool
+-- | A vertex X belongs to a chain link if : 1) its post-set P is a singleton, 2) the pre-set Q of P is a singleton and 3) Q coincides with X
+isChainLink :: Ord a =>
+               a -- ^ query node
+            -> GL.AdjacencyMap e a
+            -> (Maybe a, Bool) -- (next node, predicate)
 isChainLink x am =
-  let
-    ps = GL.postSet x am
-  in
-    case getSetSingleton ps of
-      Nothing -> True
-      Just xnext ->
-        let
-          pres = GL.preSet xnext am
-        in
-          case getSetSingleton pres of
-            Just xpre -> xpre == x
-            _ -> False
+  case getSetSingleton (GL.postSet x am) of
+    Nothing -> (Nothing, True)
+    Just xnext ->
+      case getSetSingleton (GL.preSet xnext am) of
+        Just xpre -> (Just xnext, xpre == x)
+        _ -> (Just xnext, False)
 
-
+-- | A set is a singleton if its smallest and largest elements coincide
 getSetSingleton :: Eq a => S.Set a -> Maybe a
 getSetSingleton s = case (S.lookupMin s, S.lookupMax s) of
       (Just xmi, Just xma) | xmi == xma -> Just xmi
@@ -265,9 +271,9 @@ removeInternalVertices am rs = foldr remf rs rs
 -- modifyGSS :: Monad m =>
 --              (GL.AdjacencyMap e a -> S.Set a -> NodeId -> (GL.AdjacencyMap e a, S.Set a, NodeId))
 --           -> StateT (S e a) m ()
-modifyGSS :: Monad m =>
+modifyGSS :: (MonadState (S e a) m) =>
              (GL.AdjacencyMap e (Label a) -> S.Set (Label a) -> NodeId -> (GL.AdjacencyMap e (Label a), S.Set (Label a), NodeId))
-          -> StateT (S e a) m ()
+          -> m ()
 modifyGSS f = modify (modifySGss f)
 
 data S e a = S {

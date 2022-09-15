@@ -23,6 +23,7 @@ library
   build-depends:       base >= 4.7 && < 5
                      , algebraic-graphs
                      , containers
+                     , mtl
                      , text
                      , transformers >= 0.5
                      -- debug
