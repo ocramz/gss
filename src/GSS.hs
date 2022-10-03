@@ -15,19 +15,20 @@ module GSS (GSS,
             combine, combineWith,
             prune,
             -- empty,
-            -- * Access
-            gssAdjMap, gssTop,
-            -- ** Internal types
-            Label, labelId, NodeId, labelledNode,
             -- ** Build monad
             build,
             buildT,
             S,
-            -- ** Validation
+            getGSS,
+            -- * Access
+            gssAdjMap, gssTop,
+            -- * Validation
             isValid,
              -- * GraphViz support
             dotExport,
             dotWrite,
+            -- * Internal types
+            Label, labelId, NodeId, labelledNode
             ) where
 
 import Control.Applicative (Alternative(..))
@@ -47,7 +48,7 @@ import qualified Data.Map as M (Map, fromList, toList, fromSet, mapKeys)
 import qualified Data.Set as S (Set, empty, singleton, member, fromList, toList, map, insert, delete, filter, union, difference, partition, intersection, lookupMin, lookupMax)
 import Data.Tree (Tree, rootLabel, Forest)
 -- mtl
-import Control.Monad.State (MonadState, modify)
+import Control.Monad.State (MonadState, modify, gets)
 -- text
 import Data.Text as T (Text)
 import Data.Text.Lazy as TL (Text)
@@ -93,9 +94,11 @@ gssTop = tops
 
 
 
--- | Push a node to the top of the GSS
+-- | Push (\"shift\" in the GLR parsing literature) a node to the top of the GSS
 --
--- NB: the edge label parameter corresponding to the first pushed node is ignored
+-- If there are more than one stack tops (i.e. the GSS is DAG-shaped) the same node is pushed to all stack tops
+--
+-- NB: the edge label parameter corresponding to the first pushed node is ignored (since the GSS starts empty)
 push :: (MonadState (S e a) m, Monoid e, Ord a, Eq e) =>
         e -- ^ edge label
      -> a -- ^ node
@@ -304,6 +307,10 @@ data S e a = S {
                } deriving (Eq, Show)
 s0 :: S e a
 s0 = S gssEmpty 0
+
+-- | access the current state of the 'GSS'
+getGSS :: MonadState (S e a) m => m (GSS e a)
+getGSS = gets sGss
 
 -- modifySGss :: (GL.AdjacencyMap e1 a1 -> S.Set a1 -> NodeId -> (GL.AdjacencyMap e2 a2, S.Set a2, NodeId))
 --            -> S e1 a1 -> S e2 a2
