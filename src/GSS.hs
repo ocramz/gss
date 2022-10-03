@@ -12,7 +12,7 @@ module GSS (GSS,
             -- * Construction
             push,
             fork,
-            combine,
+            combine, combineWith,
             prune,
             -- empty,
             -- * Access
@@ -155,6 +155,28 @@ fork n e x xtop
                 (am', rs', i'')
   | otherwise = pure ()
 
+
+-- | Combine a set of stack tops by adding a common top that points to all of them
+combineWith :: (MonadState (S e a) m, Monoid e, Eq e, Ord a) =>
+           (a -> Bool) -- ^ predicate that the stack tops to be merged satisfy
+        -> e -- ^ edge label
+        -> a -- ^ new stack top
+        -> m ()
+combineWith f e x = modifyGSS $ \am rs i ->
+  let
+    ts = S.filter f (S.map labelledNode rs)
+  in
+    let
+      n = length ts
+      xl = labeledFromMulti i [x]
+      i' = i + 1
+      tls = labeledFromMulti i' (S.toList ts)
+      amNew = GL.edges (zip3 (repeat e) xl tls)
+      am' = am `GL.overlay` amNew
+      i'' = i' + fromIntegral n
+      rs' = removeInternalVertices am' (S.fromList xl `S.union` rs)
+    in
+      (am', rs', i'')
 
 -- | Combine a set of stack tops by adding a common top that points to all of them
 combine :: (MonadState (S e a) m, Monoid e, Eq e, Ord a) =>
